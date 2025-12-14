@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from .repositories import DataAccessLayer
-from .services import ChartService
+from .services import ChartService, BenchmarkService
 
 
 class AnalyticsViewSet(viewsets.ViewSet):
@@ -109,32 +109,46 @@ class AnalyticsViewSet(viewsets.ViewSet):
 
 
 class AnalyticsDashboard(View):
-    def get(self, request):
-        db = DataAccessLayer()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.db = DataAccessLayer()
 
-        data_sources = {
-            'leaderboard': list(db.analytics.get_top_distance_users().values('username', 'total_distance')),
-            'social': list(
-                db.analytics.get_social_activities().values('user__username', 'comments_count', 'kudos_count',
-                                                            'engagement_score')),
-            'monthly': list(db.analytics.get_monthly_activity_stats()),
-            'influencers': list(db.analytics.get_influential_users().values('username', 'followers_count')),
-            'types': list(db.analytics.get_activity_type_performance()),
-            'levels': list(db.analytics.get_user_activity_levels())
+    def get(self, request):
+        mode = request.GET.get('mode', 'plotly')
+
+        if mode == 'benchmark':
+            n_requests = int(request.GET.get('n_requests', 100))
+            df_results = BenchmarkService.run_experiment(total_requests=n_requests)
+            best_result = df_results.loc[df_results['duration'].idxmin()]
+            chart = BenchmarkService.build_benchmark_chart(df_results)
+
+            return render(request, 'activities/dashboard_benchmark.html', {
+                'chart': chart,
+                'n_requests': n_requests,
+                'best_threads': best_result['threads'],
+                'min_time': round(best_result['duration'], 3)
+            })
+
+        with self.db as db:
+            data_sources = {
+                'leaderboard': db.analytics.get_top_distance_users(),
+                'social': db.analytics.get_social_activities(),
+                'monthly': db.analytics.get_monthly_activity_stats(),
+                'influencers': db.analytics.get_influential_users(),
+                'types': db.analytics.get_activity_type_performance(),
+                'levels': db.analytics.get_user_activity_levels(),
+            }
+
+        stats = {
+            'avg_monthly_dist': 0,
+            'max_monthly_dist': 0,
+            'median_duration': 0
         }
 
-        stats = {}
         df_monthly = pd.DataFrame(data_sources['monthly'])
-
         if not df_monthly.empty:
-            # Округляємо тут, щоб уникнути помилок у шаблонах Django
             stats['avg_monthly_dist'] = round(df_monthly['total_distance'].mean(), 1)
             stats['max_monthly_dist'] = round(df_monthly['total_distance'].max(), 1)
-            stats['median_duration'] = int(df_monthly['avg_duration'].median())
-        else:
-            stats['avg_monthly_dist'] = 0
-            stats['max_monthly_dist'] = 0
-            stats['median_duration'] = 0
 
         top_n = int(request.GET.get('top_n', 10))
         min_dist = float(request.GET.get('min_dist', 0))
@@ -145,29 +159,20 @@ class AnalyticsDashboard(View):
             df_leaderboard = df_leaderboard.head(top_n)
             data_sources['leaderboard'] = df_leaderboard.to_dict('records')
 
-        mode = request.GET.get('mode', 'plotly')
-
         if mode == 'bokeh':
-            # Для Bokeh використовуємо окремий метод сервісу
             bokeh_data = ChartService.build_bokeh_charts(data_sources)
-            template = 'activities/dashboard_bokeh.html'
-            context = {
+            return render(request, 'activities/dashboard_bokeh.html', {
                 'current_top_n': top_n,
                 'current_min_dist': min_dist,
                 'stats': stats,
                 'bokeh_script': bokeh_data['script'],
                 'bokeh_divs': bokeh_data['divs'],
-            }
+            })
         else:
-            # Для Plotly
             charts = ChartService.build_plotly_charts(data_sources)
-            template = 'activities/dashboard_plotly.html'
-            context = {
+            return render(request, 'activities/dashboard_plotly.html', {
                 'charts': charts,
                 'stats': stats,
                 'current_top_n': top_n,
                 'current_min_dist': min_dist,
-                'mode': mode
-            }
-
-        return render(request, template, context)
+            })

@@ -7,6 +7,10 @@ from bokeh.models import ColumnDataSource, HoverTool
 from bokeh.palettes import Category20c
 from bokeh.transform import cumsum
 from math import pi
+import time
+import concurrent.futures
+from django.db import connection
+from django.contrib.auth.models import User
 
 
 class ChartService:
@@ -113,3 +117,44 @@ class ChartService:
 
         script, divs = components(plots)
         return {'script': script, 'divs': divs}
+
+
+class BenchmarkService:
+    @staticmethod
+    def _db_task():
+        try:
+            return User.objects.count()
+        finally:
+            connection.close()
+
+    @staticmethod
+    def run_experiment(total_requests=100):
+        results = []
+        thread_counts = [1, 2, 4, 8, 10, 16, 32]
+
+        for workers in thread_counts:
+            start_time = time.time()
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [executor.submit(BenchmarkService._db_task) for _ in range(total_requests)]
+                for future in concurrent.futures.as_completed(futures):
+                    pass
+
+            end_time = time.time()
+            duration = end_time - start_time
+
+            results.append({
+                'threads': workers,
+                'duration': duration,
+                'requests_per_sec': total_requests / duration
+            })
+
+        return pd.DataFrame(results)
+
+    @staticmethod
+    def build_benchmark_chart(df):
+        if df.empty:
+            return "<div>No Data</div>"
+
+        fig = px.line(df, x='threads', y='duration', markers=True, title='Time vs Threads')
+        return plot(fig, output_type='div')
