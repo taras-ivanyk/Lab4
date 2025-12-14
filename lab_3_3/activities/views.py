@@ -1,0 +1,173 @@
+import pandas as pd
+from django.shortcuts import render
+from django.views import View
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated, AllowAny
+
+from .repositories import DataAccessLayer
+from .services import ChartService
+
+
+class AnalyticsViewSet(viewsets.ViewSet):
+    permission_classes = [AllowAny]
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.db = DataAccessLayer()
+
+    def _process_pandas_response(self, queryset, fields, stats_columns=None, group_by_col=None):
+        if fields:
+            data = list(queryset.values(*fields))
+        else:
+            data = list(queryset)
+
+        df = pd.DataFrame(data)
+
+        if df.empty:
+            return Response({"message": "No data available", "statistics": {}})
+
+        stats = {}
+        if stats_columns:
+            for col in stats_columns:
+                if col in df.columns and pd.api.types.is_numeric_dtype(df[col]):
+                    stats[col] = {
+                        "mean": df[col].mean(),
+                        "median": df[col].median(),
+                        "min": df[col].min(),
+                        "max": df[col].max(),
+                        "std_dev": df[col].std()
+                    }
+
+        grouped_data = None
+        if group_by_col and group_by_col in df.columns and stats_columns:
+            grouped_df = df.groupby(group_by_col)[stats_columns].mean()
+            grouped_data = grouped_df.to_dict()
+
+        response_data = {
+            "dataset": df.to_dict(orient="records"),
+            "statistics": stats,
+            "grouped_analysis": grouped_data
+        }
+        return Response(response_data)
+
+    @action(detail=False, methods=['get'])
+    def leaderboard(self, request):
+        qs = self.db.analytics.get_top_distance_users()
+        return self._process_pandas_response(
+            qs,
+            fields=['username', 'total_distance'],
+            stats_columns=['total_distance']
+        )
+
+    @action(detail=False, methods=['get'])
+    def social_engagement(self, request):
+        qs = self.db.analytics.get_social_activities()
+        return self._process_pandas_response(
+            qs,
+            fields=['id', 'user__username', 'comments_count', 'kudos_count', 'engagement_score'],
+            stats_columns=['engagement_score', 'comments_count', 'kudos_count']
+        )
+
+    @action(detail=False, methods=['get'])
+    def monthly_trends(self, request):
+        qs = self.db.analytics.get_monthly_activity_stats()
+        return self._process_pandas_response(
+            qs,
+            fields=None,
+            stats_columns=['total_distance', 'avg_duration']
+        )
+
+    @action(detail=False, methods=['get'])
+    def influencers(self, request):
+        qs = self.db.analytics.get_influential_users()
+        return self._process_pandas_response(
+            qs,
+            fields=['username', 'followers_count'],
+            stats_columns=['followers_count']
+        )
+
+    @action(detail=False, methods=['get'])
+    def activity_performance(self, request):
+        qs = self.db.analytics.get_activity_type_performance()
+        return self._process_pandas_response(
+            qs,
+            fields=None,
+            stats_columns=['avg_distance', 'max_elevation']
+        )
+
+    @action(detail=False, methods=['get'])
+    def user_levels(self, request):
+        qs = self.db.analytics.get_user_activity_levels()
+        return self._process_pandas_response(
+            qs,
+            fields=None,
+            stats_columns=['activities_count'],
+            group_by_col='status'
+        )
+
+
+class AnalyticsDashboard(View):
+    def get(self, request):
+        db = DataAccessLayer()
+
+        data_sources = {
+            'leaderboard': list(db.analytics.get_top_distance_users().values('username', 'total_distance')),
+            'social': list(
+                db.analytics.get_social_activities().values('user__username', 'comments_count', 'kudos_count',
+                                                            'engagement_score')),
+            'monthly': list(db.analytics.get_monthly_activity_stats()),
+            'influencers': list(db.analytics.get_influential_users().values('username', 'followers_count')),
+            'types': list(db.analytics.get_activity_type_performance()),
+            'levels': list(db.analytics.get_user_activity_levels())
+        }
+
+        stats = {}
+        df_monthly = pd.DataFrame(data_sources['monthly'])
+
+        if not df_monthly.empty:
+            # Округляємо тут, щоб уникнути помилок у шаблонах Django
+            stats['avg_monthly_dist'] = round(df_monthly['total_distance'].mean(), 1)
+            stats['max_monthly_dist'] = round(df_monthly['total_distance'].max(), 1)
+            stats['median_duration'] = int(df_monthly['avg_duration'].median())
+        else:
+            stats['avg_monthly_dist'] = 0
+            stats['max_monthly_dist'] = 0
+            stats['median_duration'] = 0
+
+        top_n = int(request.GET.get('top_n', 10))
+        min_dist = float(request.GET.get('min_dist', 0))
+
+        df_leaderboard = pd.DataFrame(data_sources['leaderboard'])
+        if not df_leaderboard.empty:
+            df_leaderboard = df_leaderboard[df_leaderboard['total_distance'] >= min_dist]
+            df_leaderboard = df_leaderboard.head(top_n)
+            data_sources['leaderboard'] = df_leaderboard.to_dict('records')
+
+        mode = request.GET.get('mode', 'plotly')
+
+        if mode == 'bokeh':
+            # Для Bokeh використовуємо окремий метод сервісу
+            bokeh_data = ChartService.build_bokeh_charts(data_sources)
+            template = 'activities/dashboard_bokeh.html'
+            context = {
+                'current_top_n': top_n,
+                'current_min_dist': min_dist,
+                'stats': stats,
+                'bokeh_script': bokeh_data['script'],
+                'bokeh_divs': bokeh_data['divs'],
+            }
+        else:
+            # Для Plotly
+            charts = ChartService.build_plotly_charts(data_sources)
+            template = 'activities/dashboard_plotly.html'
+            context = {
+                'charts': charts,
+                'stats': stats,
+                'current_top_n': top_n,
+                'current_min_dist': min_dist,
+                'mode': mode
+            }
+
+        return render(request, template, context)
