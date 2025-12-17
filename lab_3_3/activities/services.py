@@ -25,15 +25,17 @@ class ChartService:
         df = pd.DataFrame(data.get('leaderboard', []))
         if not df.empty:
             charts['leaderboard'] = plot(
-                px.bar(df, x='username', y='total_distance', title="Топ користувачів", color='total_distance'),
+                px.bar(df, x='username', y='total_distance', title="Топ користувачів",
+                       color='total_distance', color_continuous_scale='Viridis'),
                 output_type='div')
 
         df = pd.DataFrame(data.get('social', []))
         if not df.empty:
             df['label'] = df['user__username']
             charts['social'] = plot(
-                px.scatter(df, x='comments_count', y='kudos_count', size='engagement_score', color='engagement_score',
-                           hover_name='label', title="Соціальна взаємодія"), output_type='div')
+                px.scatter(df, x='comments_count', y='kudos_count', size='engagement_score',
+                           color='engagement_score', hover_name='label', title="Соціальна взаємодія"),
+                output_type='div')
 
         df = pd.DataFrame(data.get('monthly', []))
         if not df.empty:
@@ -41,21 +43,31 @@ class ChartService:
                 px.line(df, x='month', y='total_distance', markers=True, title="Дистанція по місяцях"),
                 output_type='div')
 
-        df = pd.DataFrame(data.get('influencers', []))
-        if not df.empty:
+        df_dist = pd.DataFrame(data.get('leaderboard', []))
+        if not df_dist.empty:
             charts['influencers'] = plot(
-                px.pie(df, names='username', values='followers_count', title="Частка підписників"), output_type='div')
+                px.histogram(df_dist, x='total_distance', nbins=10,
+                             title="Розподіл дистанцій",
+                             labels={'total_distance': 'Дистанція (км)', 'count': 'Кількість'},
+                             color_discrete_sequence=['#ef553b']),
+                output_type='div')
 
         df = pd.DataFrame(data.get('types', []))
         if not df.empty:
             charts['types'] = plot(
-                px.bar(df, x='avg_distance', y='activity_type', orientation='h', title="Середня дистанція за типом"),
+                px.bar(df, x='avg_distance', y='activity_type', orientation='h',
+                       title="Середня дистанція за типом", color='avg_distance'),
                 output_type='div')
 
         df = pd.DataFrame(data.get('levels', []))
         if not df.empty:
+            path = ['status']
+            if 'username' in df.columns:
+                path.append('username')
+
             charts['levels'] = plot(
-                px.sunburst(df, path=['status', 'username'], values='activities_count', title="Рівні активності"),
+                px.sunburst(df, path=path, values='activities_count',
+                            title="Рівні активності"),
                 output_type='div')
 
         return charts
@@ -66,58 +78,101 @@ class ChartService:
 
         df = pd.DataFrame(data.get('leaderboard', []))
         if not df.empty:
-            p = figure(x_range=df['username'].tolist(), height=350, title="Топ користувачів", toolbar_location=None,
-                       tools="")
-            p.vbar(x='username', top='total_distance', width=0.9, source=ColumnDataSource(df), line_color='white',
-                   fill_color="#4c72b0")
+            df = df.sort_values('total_distance', ascending=True)
+            p = figure(y_range=df['username'].tolist(), height=350, title="🏆 Топ користувачів",
+                       toolbar_location="right", tools="pan,wheel_zoom,reset,save")
+            p.hbar(y='username', right='total_distance', height=0.8, source=ColumnDataSource(df),
+                   line_color='white', fill_color="#4c72b0")
             p.xgrid.grid_line_color = None
-            p.add_tools(HoverTool(tooltips=[("User", "@username"), ("Dist", "@total_distance")]))
+            p.add_tools(HoverTool(tooltips=[("Користувач", "@username"), ("Дистанція", "@total_distance{0.0} м")]))
             plots['leaderboard'] = p
 
         df = pd.DataFrame(data.get('social', []))
         if not df.empty:
-            p = figure(title="Соціальна взаємодія", height=350, x_axis_label='Comments', y_axis_label='Kudos')
-            p.scatter('comments_count', 'kudos_count', size=10, source=ColumnDataSource(df), color="navy", alpha=0.5)
-            p.add_tools(HoverTool(tooltips=[("User", "@user__username"), ("Score", "@engagement_score")]))
+            p = figure(title="💬 Соціальна взаємодія", height=350,
+                       x_axis_label='Коментарі', y_axis_label='Лайки (Kudos)',
+                       toolbar_location="right", tools="pan,wheel_zoom,reset,box_select")
+            p.circle('comments_count', 'kudos_count', size=12, source=ColumnDataSource(df),
+                     color="navy", alpha=0.6, fill_color="#2b8cbe")
+            p.add_tools(HoverTool(tooltips=[("Користувач", "@user__username"), ("Score", "@engagement_score")]))
             plots['social'] = p
 
         df = pd.DataFrame(data.get('monthly', []))
         if not df.empty:
-            p = figure(title="Дистанція по місяцях", x_axis_type='datetime', height=350)
+            p = figure(title="📅 Динаміка по місяцях", x_axis_type='datetime', height=350,
+                       toolbar_location="above", tools="pan,wheel_zoom,reset")
             src = ColumnDataSource(df)
-            p.line(x='month', y='total_distance', line_width=2, source=src)
-            p.scatter(x='month', y='total_distance', size=8, source=src, fill_color="white")
-            p.add_tools(HoverTool(tooltips=[("Date", "@month{%F}"), ("Dist", "@total_distance")],
+            p.line(x='month', y='total_distance', line_width=3, color="#e6550d", source=src)
+            p.circle(x='month', y='total_distance', size=8, color="#e6550d", fill_color="white", source=src)
+            p.add_tools(HoverTool(tooltips=[("Дата", "@month{%F}"), ("Дистанція", "@total_distance м")],
                                   formatters={'@month': 'datetime'}))
             plots['monthly'] = p
 
-        df = pd.DataFrame(data.get('influencers', []))
-        if not df.empty:
-            d = df.copy()
-            s = d['followers_count'].sum()
-            d['angle'] = d['followers_count'] / s * 2 * pi if s > 0 else 0
-            d['color'] = [Category20c[20][i % 20] for i in range(len(d))] if len(d) > 2 else ["#3182bd", "#6baed6"][
-                :len(d)]
-            p = figure(height=350, title="Частка підписників", toolbar_location=None, tools="hover",
-                       tooltips="@username: @followers_count", x_range=(-0.5, 1.0))
-            p.wedge(x=0, y=1, radius=0.4, start_angle=cumsum('angle', include_zero=True), end_angle=cumsum('angle'),
-                    line_color="white", fill_color='color', legend_field='username', source=ColumnDataSource(d))
-            p.axis.visible = False
-            p.grid.grid_line_color = None
-            plots['influencers'] = p
+            df = pd.DataFrame(data.get('leaderboard', []))
+            if not df.empty:
+                import numpy as np
+
+                hist, edges = np.histogram(df['total_distance'], bins=10)
+
+                hist_df = pd.DataFrame({
+                    'top': hist,
+                    'left': edges[:-1],
+                    'right': edges[1:]
+                })
+                hist_df['interval'] = [f"{int(l)}-{int(r)}м" for l, r in zip(hist_df['left'], hist_df['right'])]
+
+                p = figure(title="📊 Розподіл дистанцій", height=350,
+                           toolbar_location="above", tools="pan,wheel_zoom,reset")
+
+                p.quad(top='top', bottom=0, left='left', right='right', source=ColumnDataSource(hist_df),
+                       fill_color="#ef553b", line_color="white", alpha=0.8)
+
+                p.y_range.start = 0
+                p.xaxis.axis_label = 'Дистанція (м)'
+                p.yaxis.axis_label = 'Кількість користувачів'
+
+                p.add_tools(HoverTool(tooltips=[("Діапазон", "@interval"), ("К-сть", "@top")]))
+
+                plots['influencers'] = p
 
         df = pd.DataFrame(data.get('types', []))
         if not df.empty:
-            p = figure(y_range=df['activity_type'].tolist(), height=350, title="Середня дистанція за типом",
+            p = figure(y_range=df['activity_type'].tolist(), height=350, title="🏃 Середня дистанція (Тип)",
                        toolbar_location=None, tools="")
-            p.hbar(y='activity_type', right='avg_distance', height=0.9, source=ColumnDataSource(df), line_color='white',
-                   fill_color="#cab2d6")
-            p.add_tools(HoverTool(tooltips=[("Type", "@activity_type"), ("Avg Dist", "@avg_distance")]))
+            p.hbar(y='activity_type', right='avg_distance', height=0.9, source=ColumnDataSource(df),
+                   line_color='white', fill_color="#756bb1")
+            p.add_tools(HoverTool(tooltips=[("Тип", "@activity_type"), ("Сер. дистанція", "@avg_distance{0.0} м")]))
             plots['types'] = p
+
+        df = pd.DataFrame(data.get('levels', []))
+        if not df.empty:
+            if 'status' in df.columns:
+                df_grouped = df.groupby('status')['activities_count'].sum().reset_index()
+            else:
+                df_grouped = df
+
+
+            total = df_grouped['activities_count'].sum()
+            if total > 0:
+                df_grouped['angle'] = df_grouped['activities_count'] / total * 2 * pi
+            else:
+                df_grouped['angle'] = 0
+
+            df_grouped['color'] = ["#31a354", "#fd8d3c", "#74c476"][:len(df_grouped)]  # Кольори вручну або палітра
+
+            p = figure(height=350, title="📊 Активність (Статуси)", toolbar_location=None,
+                       tools="hover", tooltips="@status: @activities_count", x_range=(-0.5, 0.5))
+
+            p.annular_wedge(x=0, y=0, inner_radius=0.2, outer_radius=0.4,
+                            start_angle=cumsum('angle', include_zero=True), end_angle=cumsum('angle'),
+                            line_color="white", fill_color='color', legend_field='status',
+                            source=ColumnDataSource(df_grouped))
+            p.axis.visible = False
+            p.grid.grid_line_color = None
+            plots['levels'] = p
 
         script, divs = components(plots)
         return {'script': script, 'divs': divs}
-
 
 class BenchmarkService:
     @staticmethod

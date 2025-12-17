@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>Bokeh Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
     <script src="https://cdn.bokeh.org/bokeh/release/bokeh-3.8.1.min.js"></script>
 
     <style>
@@ -12,28 +13,22 @@
             background: white;
             border-radius: 8px;
             padding: 15px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            height: 100%;
-            overflow: hidden; /* Запобігає виходу графіка за межі */
-        }
-        .bk-root {
-            margin: 0 auto; /* Центрує графіки всередині контейнера */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            min-height: 400px; /* Фіксуємо висоту, щоб графіки не стрибали */
         }
     </style>
-
-    {{ bokeh_script|safe }}
 </head>
 <body class="p-4">
     <div class="container-fluid">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1 class="h3 m-0">📈 Bokeh Dashboard</h1>
+            <h1 class="h3 m-0">Bokeh Dashboard</h1>
             <div class="btn-group">
                 <a href="?mode=plotly" class="btn btn-outline-primary">Перейти на Plotly</a>
                 <a href="?mode=bokeh" class="btn btn-primary active">Bokeh</a>
             </div>
         </div>
 
-        <form method="get" class="card p-3 mb-4 shadow-sm">
+        <form method="get" class="card p-3 mb-4 shadow-sm border-0">
             <input type="hidden" name="mode" value="bokeh">
             <div class="row g-3 align-items-end">
                 <div class="col-md-3">
@@ -45,24 +40,26 @@
                     <input type="number" name="min_dist" value="{{ current_min_dist|default:0 }}" class="form-control" step="1000">
                 </div>
                 <div class="col-md-3">
-                     <button type="submit" class="btn btn-success w-100">Застосувати фільтри</button>
+                     <button type="submit" class="btn btn-success w-100">Застосувати</button>
                 </div>
                 <div class="col-md-3">
-                    <div class="alert alert-info p-2 m-0 text-center small">
-                        <strong>Середня:</strong> {{ stats.avg_monthly_dist }} м<br>
-                        <strong>Макс:</strong> {{ stats.max_monthly_dist }} м
+                    <div class="bg-light p-2 rounded text-center border">
+                        <small class="text-muted d-block">Статистика</small>
+                        <strong>Avg:</strong> {{ stats.avg_monthly_dist }} м |
+                        <strong>Max:</strong> {{ stats.max_monthly_dist }} м
                     </div>
                 </div>
             </div>
         </form>
 
         <div class="row g-4">
+
             <div class="col-md-6">
                 <div class="chart-card">
                     {% if bokeh_divs.leaderboard %}
                         {{ bokeh_divs.leaderboard|safe }}
                     {% else %}
-                        <p class="text-muted text-center py-5">Немає даних для лідерборду</p>
+                        <div class="d-flex align-items-center justify-content-center h-100 text-muted">Немає даних (Leaderboard)</div>
                     {% endif %}
                 </div>
             </div>
@@ -72,33 +69,55 @@
                     {% if bokeh_divs.social %}
                         {{ bokeh_divs.social|safe }}
                     {% else %}
-                        <p class="text-muted text-center py-5">Немає даних про соціальну активність</p>
+                        <div class="d-flex align-items-center justify-content-center h-100 text-muted">Немає даних (Social)</div>
                     {% endif %}
                 </div>
             </div>
 
-            <div class="col-12">
+            <div class="col-md-6">
                 <div class="chart-card">
                     {% if bokeh_divs.monthly %}
                         {{ bokeh_divs.monthly|safe }}
                     {% else %}
-                        <p class="text-muted text-center py-5">Немає даних по місяцях</p>
+                        <div class="d-flex align-items-center justify-content-center h-100 text-muted">Немає даних (Monthly)</div>
                     {% endif %}
                 </div>
             </div>
 
-            {% if bokeh_divs.influencers %}
             <div class="col-md-6">
-                <div class="chart-card">{{ bokeh_divs.influencers|safe }}</div>
+                <div class="chart-card">
+                    {% if bokeh_divs.influencers %}
+                        {{ bokeh_divs.influencers|safe }}
+                    {% else %}
+                        <div class="d-flex align-items-center justify-content-center h-100 text-muted">Немає даних (Influencers)</div>
+                    {% endif %}
+                </div>
             </div>
-            {% endif %}
 
-            {% if bokeh_divs.types %}
             <div class="col-md-6">
-                <div class="chart-card">{{ bokeh_divs.types|safe }}</div>
+                <div class="chart-card">
+                    {% if bokeh_divs.types %}
+                        {{ bokeh_divs.types|safe }}
+                    {% else %}
+                        <div class="d-flex align-items-center justify-content-center h-100 text-muted">Немає даних (Types)</div>
+                    {% endif %}
+                </div>
             </div>
-            {% endif %}
+
+            <div class="col-md-6">
+                <div class="chart-card">
+                    {% if bokeh_divs.levels %}
+                        {{ bokeh_divs.levels|safe }}
+                    {% else %}
+                        <div class="d-flex align-items-center justify-content-center h-100 text-muted">Немає даних (Levels)</div>
+                    {% endif %}
+                </div>
+            </div>
+
         </div>
     </div>
+
+    {{ bokeh_script|safe }}
+
 </body>
 </html>
